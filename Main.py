@@ -34,4 +34,31 @@ df.columns = df.columns.str.lower()
 df['garman_klass_vol'] = ((np.log(df['high'])-np.log(df['low']))**2)/2 - (2*np.log(2)-1)*((np.log(df['adj close'])-np.log(df['open']))**2)
 
 df['rsi'] = df.groupby(level=1)['adj close'].transform(lambda x: pandas_ta.rsi(close=x, length=20))
-df.xs('AAPL', level=1)['rsi'].plot()
+
+df['bb_low'] = df.groupby(level =1)['adj close'].transform(lambda x: pandas_ta.bbands(close=np.log1p(x), length=20).iloc[:,0])
+
+df['bb_mid'] = df.groupby(level =1)['adj close'].transform(lambda x: pandas_ta.bbands(close=np.log1p(x), length=20).iloc[:,1])
+
+df['bb_high'] = df.groupby(level =1)['adj close'].transform(lambda x: pandas_ta.bbands(close=np.log1p(x), length=20).iloc[:,2])
+
+#Here we'll define a custom function to calculate ATR, as transform function only works on 1 column at a time
+def compute_atr(stock_data):
+    atr = pandas_ta.atr(high=stock_data['high'],
+                        low=stock_data['low'],
+                        close=stock_data['close'],
+                        length=14)
+    return atr.sub(atr.mean()).div(atr.std())
+
+df['atr'] = df.groupby(level=1, group_keys=False).apply(compute_atr) 
+
+#Now we'll create a function to calculate MACD
+def compute_macd(close):
+    macd= pandas_ta.macd(close = close, length = 20).iloc[:,0]
+    #Here we'll need to normalize the data because we're going to use it in a machine learning model and we're going to cluster the data
+    return macd.sub(macd.mean()).div(macd.std())
+
+df['macd'] = df.groupby(level=1, group_keys=False)['adj close'].apply(compute_macd)
+
+#When calculating the dollar volume it's better to divide it by 1Million, to make it easier to comprehend 
+df['dollar_volume'] = (df['adj close']*df['volume'])/1e6
+ 
