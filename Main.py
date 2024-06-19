@@ -69,12 +69,39 @@ data = (pd.concat([df.unstack('ticker')['dollar_volume'].resample('M').mean().st
           df.unstack()[last_cols].resample('M').last().stack('ticker')],
           axis=1)).dropna()
 
-#now use agreggate Dollar Volume to filter out top 150 most liquid stocks
-#calculate 5 year-rolling average of Dollar Volume for each stocks before filtering
+#now we use agreggate Dollar Volume to filter out top 150 most liquid stocks
+#calculating 5 year-rolling average of Dollar Volume for each stocks before filtering
 data['dollar_volume'] = (data['dollar_volume'].unstack('ticker').rolling(5*12).mean().stack())
 data['dollar_volume_rank'] = (data.groupby('date')['dollar_volume'].rank(ascending=False))
+
 #from the 500 stocks, the top 150 are selected based on 5 year rolling average Dollar Volume
-#and the Dollar Volume and Dollar Volume Rank columns are deleted from the dataframe
 data = data[data['dollar_volume_rank']<150].drop(['dollar_volume', 'dollar_volume_rank'], axis = 1)
+
+#The next step is to calculate monthly returns for different time horizons and add them to the feature set
+
+#Because we may want to capture Time-series dynamics that reflect momentum patterns.
+def calculate_returns(df):
+    #we also need an outlier cut-off, so for all the values above outlier threshold, they will be assigned the threshold of that percentile
+    outlier_cutoff = 0.005
+    #now we need to calculate returns for the following Lags
+    lags = [1, 2, 3, 6, 9, 12]
+    
+    for lag in lags:
+        df[f'return_{lag}m'] = (df['adj close']
+                               .pct_change(lag)
+                               .pipe(lambda x: x.clip(lower=x.quantile(outlier_cutoff),
+                                                      upper=x.quantile(1-outlier_cutoff)))
+                               .add(1)
+                               .pow(1/lag)
+                               .sub(1))
+    return df
+data = data.groupby(level=1, group_keys=False).apply(calculate_returns).dropna()
+
+
+ 
+
+
+
+
 
 
