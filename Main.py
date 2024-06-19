@@ -36,9 +36,7 @@ df['garman_klass_vol'] = ((np.log(df['high'])-np.log(df['low']))**2)/2 - (2*np.l
 df['rsi'] = df.groupby(level=1)['adj close'].transform(lambda x: pandas_ta.rsi(close=x, length=20))
 
 df['bb_low'] = df.groupby(level =1)['adj close'].transform(lambda x: pandas_ta.bbands(close=np.log1p(x), length=20).iloc[:,0])
-
 df['bb_mid'] = df.groupby(level =1)['adj close'].transform(lambda x: pandas_ta.bbands(close=np.log1p(x), length=20).iloc[:,1])
-
 df['bb_high'] = df.groupby(level =1)['adj close'].transform(lambda x: pandas_ta.bbands(close=np.log1p(x), length=20).iloc[:,2])
 
 #Here we'll define a custom function to calculate ATR, as transform function only works on 1 column at a time
@@ -61,4 +59,22 @@ df['macd'] = df.groupby(level=1, group_keys=False)['adj close'].apply(compute_ma
 
 #When calculating the dollar volume it's better to divide it by 1Million, to make it easier to comprehend 
 df['dollar_volume'] = (df['adj close']*df['volume'])/1e6
- 
+
+#Now aggregate to monthly level and filter top 150 most liquid stocks for each month 
+#this is done to reduce training time and experiment with feature and strategies, we convert the business-daily data to month-end frequency
+#We will aggregate all the technical indicators and adjusted close price, and take the end value for each month  
+last_cols = [c for c in df.columns.unique(0) if c not in ['dollar_volume', 'volume', 'open', 'high', 'low', 'close']]
+
+data = (pd.concat([df.unstack('ticker')['dollar_volume'].resample('M').mean().stack('ticker').to_frame('dollar_volume'),
+          df.unstack()[last_cols].resample('M').last().stack('ticker')],
+          axis=1)).dropna()
+
+#now use agreggate Dollar Volume to filter out top 150 most liquid stocks
+#calculate 5 year-rolling average of Dollar Volume for each stocks before filtering
+data['dollar_volume'] = (data['dollar_volume'].unstack('ticker').rolling(5*12).mean().stack())
+data['dollar_volume_rank'] = (data.groupby('date')['dollar_volume'].rank(ascending=False))
+#from the 500 stocks, the top 150 are selected based on 5 year rolling average Dollar Volume
+#and the Dollar Volume and Dollar Volume Rank columns are deleted from the dataframe
+data = data[data['dollar_volume_rank']<150].drop(['dollar_volume', 'dollar_volume_rank'], axis = 1)
+
+
