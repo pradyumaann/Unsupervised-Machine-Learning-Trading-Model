@@ -71,9 +71,8 @@ data = (pd.concat([df.unstack('ticker')['dollar_volume'].resample('M').mean().st
 
 #now we use agreggate Dollar Volume to filter out top 150 most liquid stocks
 #calculating 5 year-rolling average of Dollar Volume for each stocks before filtering
-data['dollar_volume'] = (data['dollar_volume'].unstack('ticker').rolling(5*12).mean().stack())
+data['dollar_volume'] = (data.loc[:, 'dollar_volume'].unstack('ticker').rolling(5*12).mean().stack())
 data['dollar_volume_rank'] = (data.groupby('date')['dollar_volume'].rank(ascending=False))
-
 #from the 500 stocks, the top 150 are selected based on 5 year rolling average Dollar Volume
 data = data[data['dollar_volume_rank']<150].drop(['dollar_volume', 'dollar_volume_rank'], axis = 1)
 
@@ -98,7 +97,43 @@ def calculate_returns(df):
 data = data.groupby(level=1, group_keys=False).apply(calculate_returns).dropna()
 
 
- 
+#Download the Fama-French Factors and Calculate Rolling Factor Betas for each stock
+#we want to introduce Fama-French data to estimate the exposure of our assets to commonly known risk factors 
+#and we're going to do that using Regression and OLS model 
+#The 5 Fama-French factors are - MArket Risk, Size, Value, Operating Profitability, and Investment. These factors are used to assess risk and return of portfolios
+#We can access the historical factor returns using the pandas-datareader and estimate historical exposures using the Rolling OLS Regression
+factor_data = web.DataReader('F-F_Research_Data_5_Factors_2x3',
+                             'famafrench',
+                             start='2016')[0].drop('RF', axis=1)
+
+factor_data.index = factor_data.index.to_timestamp()
+factor_data = factor_data.resample('M').last().div(100)
+factor_data.index.name = 'date'
+
+#Now we can regress the End of Month Return with Factor Data and calculate Beta
+factor_data = factor_data.join(data['return_1m']).sort_index() 
+
+#In this step we're going to filter out stocks that have less than 10 month data, we are doing that because we're going to use Regression for 2 years
+#and stocks that don't have enough data will break our function
+observations = factor_data.groupby(level=1).size()
+valid_stocks = observations[observations >=10]
+factor_data = factor_data[factor_data.index.get_level_values('ticker').isin(valid_stocks.index)]
+
+#now we calculate rolling factor betas by regressing 1 month return with all the other factors in factor data
+betas = (factor_data.groupby(level=1, group_keys=False)
+        .apply(lambda x: RollingOLS(endog=x['return_1m'],
+                             exog=sm.add_constant(x.drop('return_1m', axis=1)),
+                             window=min(23, x.shape[0]),
+                             min_nobs=len(x.columns)+1)
+               .fit(params_only=True)
+               .params
+               .drop('const', axis=1)))
+
+factors = ['Mkt-RF', 'SMB', 'HML', 'RMW', 'CMA']
+data = data.join(betas)
+data.loc[:, factors] = data.groupby('ticker', group_keys=False)[factors].apply(lambda x: x.fillna(x.mean()))
+
+data = data.dropna()
 
 
 
