@@ -1,6 +1,6 @@
 from statsmodels.regression.rolling import RollingOLS
 import pandas_datareader as web
-import matplotlib as plt
+import matplotlib.pyplot as plt
 import statsmodels.api as sm
 import pandas as pd
 import numpy as np
@@ -58,7 +58,7 @@ def compute_macd(close):
 df['macd'] = df.groupby(level=1, group_keys=False)['adj close'].apply(compute_macd)
 
 #When calculating the dollar volume it's better to divide it by 1Million, to make it easier to comprehend 
-df['dollar_volume'] = (df['adj close']*df['volume'])/1e6
+df['dollar_volume'] = (df['adj close']*df['volume'])/1e6 
 
 #Now aggregate to monthly level and filter top 150 most liquid stocks for each month 
 #this is done to reduce training time and experiment with feature and strategies, we convert the business-daily data to month-end frequency
@@ -129,12 +129,77 @@ betas = (factor_data.groupby(level=1, group_keys=False)
                .params
                .drop('const', axis=1)))
 
-factors = ['Mkt-RF', 'SMB', 'HML', 'RMW', 'CMA']
-data = data.join(betas)
-data.loc[:, factors] = data.groupby('ticker', group_keys=False)[factors].apply(lambda x: x.fillna(x.mean()))
+#The data for Factor_data is only till 2024-04-30, so we'll have to remove the last 2 months from all the columns in 'data' till 2024-04-30
 
+#Find the latest date in factor_data
+latest_factor_date = factor_data.index.get_level_values('date').max()
+# Filter out data beyond the latest date in factor_data
+data = data[data.index.get_level_values('date')<= latest_factor_date]
+data = data.drop('adj close', axis=1)
 data = data.dropna()
 
+factors = ['Mkt-RF', 'SMB', 'HML', 'RMW', 'CMA']
+data = (data.join(betas))
+data.loc[:, factors] = data.groupby('ticker', group_keys=False)[factors].apply(lambda x: x.fillna(x.mean()))
+
+
+#we have 18 features in our dataset, now we can apply maachine learning models 
+#from here on for each new month we have to form a portfolio with some stocks 
+#we have to decide which stocks to choose for each portfolio this is where we can use machine learning model to predict which stocks to include in the portfolio
+#if we have a long short portfolio we can predict which stocks to be long and which stocks to be short
+#We can also use the machine learning model to predict the magnitude of the position in each stock i.e., what is the weight in the portfolio
+#In our case an unsupervised model is used to decide which stocks to use in the portfolio, based on grouping that's why we're going to use a clustering algorithm a K-Means Clustering to keep things simple
+#We're going to fit a K-Means Clustering algorithm and split all the stocks in a few clusters, then we're going to analyze the clusters   
+#K-Means Clustering Algorithm may assign the centroids of the Clusters randomly and then it assigns a given point to the cluster based on the distance from centroid to that point
+
+#For each month fit a K-Means Clustering Algorithm to group similar assets based on their features, optimum number of Clusters each month is around 4
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+
+#applying pre defined centroids
+target_rsi_values = [35, 45, 55, 65]
+initial_centroids = np.zeros((len(target_rsi_values), 18))
+initial_centroids[:, 1] = target_rsi_values
+
+def get_clusters(df):
+    #normalize data
+    #scaler = StandardScaler()
+    #scaled_data = scaler.fit_transform(df)
+    #apply Kmeans with initial centroids
+    #kmeans = KMeans(n_clusters=4, random_state=0, init=initial_centroids, n_init=1)
+    #df['cluster'] = kmeans.fit(scaled_data).labels_
+    df['cluster'] = KMeans(n_clusters=4, random_state=0, init=initial_centroids).fit(df).labels_
+    return df
+
+data = data.dropna().groupby('date', group_keys=False).apply(get_clusters)
+
+#Plot function to plot the Clusters
+def plot_clusters(data):
+    cluster_0 = data[data['cluster']==0]
+    cluster_1 = data[data['cluster']==1]
+    cluster_2 = data[data['cluster']==2]
+    cluster_3 = data[data['cluster']==3]
+    
+    plt.scatter(cluster_0.iloc[:,5], cluster_0.iloc[:,1], color='red', label='cluster 0')
+    plt.scatter(cluster_1.iloc[:,5], cluster_1.iloc[:,1], color='green', label='cluster 1')
+    plt.scatter(cluster_2.iloc[:,5], cluster_2.iloc[:,1], color='blue', label='cluster 2')
+    plt.scatter(cluster_3.iloc[:,5], cluster_3.iloc[:,1], color='black', label='cluster 3')
+    
+    plt.legend()
+    plt.show()
+    return
+
+#For this model we need to follow stocks' momentum, for that we can use RSI as the main indicator. 
+plt.style.use('ggplot')
+for i in data.index.get_level_values('date').unique().tolist():
+    g = data.xs(i, level=0)
+    plt.title(f'Date {i}')
+    plot_clusters(g)
+    
+#after fitting the model, we can observe that Cluster 3 represents all the stocks with an RSI around 65, Cluster 2 represents RSI around 55, and so on.  
+#Now we can use the Cluster 3 in our portfolio to select every month the stocks which have a good momentum and RSI around 65
+   
+ 
 
 
 
