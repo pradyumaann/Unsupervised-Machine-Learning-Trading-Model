@@ -28,9 +28,8 @@ df = yf.download(tickers=symbols_list,
 df.index.names = ['date','ticker']
 df.columns = df.columns.str.lower()
 
-#Calculating features and techhnical indicators for each stock
-#Feature & tecnical indicators include: 
-#Garman-Klass Volatility, Dollar Volume, MACD, RSI, BOllinger Bands
+#Calculating features and technical indicators for each stock
+#Feature & tecnical indicators include: Garman-Klass Volatility, Dollar Volume, MACD, RSI, BOllinger Bands
 df['garman_klass_vol'] = ((np.log(df['high'])-np.log(df['low']))**2)/2 - (2*np.log(2)-1)*((np.log(df['adj close'])-np.log(df['open']))**2)
 
 df['rsi'] = df.groupby(level=1)['adj close'].transform(lambda x: pandas_ta.rsi(close=x, length=20))
@@ -62,7 +61,6 @@ df['dollar_volume'] = (df['adj close']*df['volume'])/1e6
 
 #Now aggregate to monthly level and filter top 150 most liquid stocks for each month 
 #this is done to reduce training time and experiment with feature and strategies, we convert the business-daily data to month-end frequency
-#We will aggregate all the technical indicators and adjusted close price, and take the end value for each month  
 last_cols = [c for c in df.columns.unique(0) if c not in ['dollar_volume', 'volume', 'open', 'high', 'low', 'close']]
 
 data = (pd.concat([df.unstack('ticker')['dollar_volume'].resample('M').mean().stack('ticker').to_frame('dollar_volume'),
@@ -98,9 +96,6 @@ data = data.groupby(level=1, group_keys=False).apply(calculate_returns).dropna()
 
 
 #Download the Fama-French Factors and Calculate Rolling Factor Betas for each stock
-#we want to introduce Fama-French data to estimate the exposure of our assets to commonly known risk factors 
-#and we're going to do that using Regression and OLS model 
-#The 5 Fama-French factors are - MArket Risk, Size, Value, Operating Profitability, and Investment. These factors are used to assess risk and return of portfolios
 #We can access the historical factor returns using the pandas-datareader and estimate historical exposures using the Rolling OLS Regression
 factor_data = web.DataReader('F-F_Research_Data_5_Factors_2x3',
                              'famafrench',
@@ -143,14 +138,7 @@ data = (data.join(betas))
 data.loc[:, factors] = data.groupby('ticker', group_keys=False)[factors].apply(lambda x: x.fillna(x.mean()))
 
 
-#we have 18 features in our dataset, now we can apply maachine learning models 
-#from here on for each new month we have to form a portfolio with some stocks 
-#we have to decide which stocks to choose for each portfolio this is where we can use machine learning model to predict which stocks to include in the portfolio
-#if we have a long short portfolio we can predict which stocks to be long and which stocks to be short
-#We can also use the machine learning model to predict the magnitude of the position in each stock i.e., what is the weight in the portfolio
-#In our case an unsupervised model is used to decide which stocks to use in the portfolio, based on grouping that's why we're going to use a clustering algorithm a K-Means Clustering to keep things simple
 #We're going to fit a K-Means Clustering algorithm and split all the stocks in a few clusters, then we're going to analyze the clusters   
-#K-Means Clustering Algorithm may assign the centroids of the Clusters randomly and then it assigns a given point to the cluster based on the distance from centroid to that point
 
 #For each month fit a K-Means Clustering Algorithm to group similar assets based on their features, optimum number of Clusters each month is around 4
 from sklearn.cluster import KMeans
@@ -162,12 +150,7 @@ initial_centroids = np.zeros((len(target_rsi_values), 18))
 initial_centroids[:, 1] = target_rsi_values
 
 def get_clusters(df):
-    #normalize data
-    #scaler = StandardScaler()
-    #scaled_data = scaler.fit_transform(df)
-    #apply Kmeans with initial centroids
-    #kmeans = KMeans(n_clusters=4, random_state=0, init=initial_centroids, n_init=1)
-    #df['cluster'] = kmeans.fit(scaled_data).labels_
+   
     df['cluster'] = KMeans(n_clusters=4, random_state=0, init=initial_centroids).fit(df).labels_
     return df
 
@@ -193,15 +176,27 @@ def plot_clusters(data):
 plt.style.use('ggplot')
 for i in data.index.get_level_values('date').unique().tolist():
     g = data.xs(i, level=0)
-    plt.title(f'Date {i}')
-    plot_clusters(g)
+    #plt.title(f'Date {i}')
+    #plot_clusters(g)
     
 #after fitting the model, we can observe that Cluster 3 represents all the stocks with an RSI around 65, Cluster 2 represents RSI around 55, and so on.  
 #Now we can use the Cluster 3 in our portfolio to select every month the stocks which have a good momentum and RSI around 65
-   
- 
 
+#For each month selets assets based on the cluster and form a portfolio
+#based on Efficient Frontier Max Sharpe Ratio
+#The Hypothesis is that Stocks which have an RSI of around 70 have good momentum and they should have a good momentum even in the next month 
 
+#the idea here is to create a dictionary with: the first date of the next month, & a list of all the good momentum stocks from previous month    
+filtered_df = data[data['cluster'] == 3].copy() 
+filtered_df = filtered_df.reset_index(level=1)
+filtered_df.index = filtered_df.index + pd.DateOffset(1)
+filtered_df = filtered_df.reset_index().set_index(['date', 'ticker'])  
 
+dates = filtered_df.index.get_level_values('date').unique().tolist() 
 
-
+#create the dictionary with 'date' as key and the list of all the stocks from previous month as value
+fixed_dates = {}
+for d in dates:
+    fixed_dates[d.strftime('%Y-%m-%d')] = filtered_df.xs(d, level=0).index.tolist()
+    
+print(fixed_dates)
