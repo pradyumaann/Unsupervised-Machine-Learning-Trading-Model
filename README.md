@@ -15,18 +15,16 @@ This repository contains a Python-based trading model designed to optimize a por
 ## Installation
 
 1. Clone the repository:
-   git clone https://github.com/yourusername/sp500-trading-model.git
+   git clone https://github.com/pradyumaann/Unsupervised-Machine-Learning_Trading-Model.git
 
 2. Navigate to the project directory:
-   cd sp500-trading-model
+   cd Unsupervised-Machine-Learning_Trading-Model
 
-3. Install the required packages:
-   pip install -r requirements.txt
 
 ## Usage
 
 1. Run the main script to execute the trading model:
-   python trading_model.py
+   python main.py
   
 2. The script will download the necessary data, calculate features, perform clustering, optimize the portfolio, and output performance results.
 
