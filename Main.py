@@ -199,4 +199,67 @@ fixed_dates = {}
 for d in dates:
     fixed_dates[d.strftime('%Y-%m-%d')] = filtered_df.xs(d, level=0).index.tolist()
     
-print(fixed_dates)
+
+#The next step is to define Portfolio Optimization Function
+#We'll define the function which optimizes portfolio weights usin PyPortfolioOpt package and EfficientFrontier optimizer to maximize the sharpe ratio
+from pypfopt.efficient_frontier import EfficientFrontier
+from pypfopt import risk_models
+from pypfopt import expected_returns
+
+#There may be cases where the optimize_weights function may assign the weight 0 to many stocks or 1 to a single stock
+#to avoid that we'll apply single weight bounds constraint for diversification(minimum half of equal weight and maximum 10% of portfolio)
+def optimize_weights(prices, lower_bound=0):
+    
+    returns = expected_returns.mean_historical_return(prices=prices, frequency=252)
+    cov = risk_models.sample_cov(prices=prices, frequency=252)
+    
+    ef = EfficientFrontier(expected_returns=returns, 
+                           cov_matrix=cov, 
+                           weight_bounds=(lower_bound,1), 
+                           solver='SCS')
+    
+    weights = ef.max_sharpe()
+    
+    return ef.clean_weights()
+#download fresh Daily prices Data only for shortlisted stocks
+stocks = data.index.get_level_values('ticker').unique().tolist()
+new_df = yf.download(tickers=stocks, start=data.index.get_level_values('date').unique()[0]-pd.DateOffset(months=12), 
+                     end=data.index.get_level_values('date').unique()[-1])
+
+#Now calculate daily returns for each stock which could land up in our potfolio, then loop over each month start, select the stocks for the month and calculate their weights for the next month
+#if the Maximum Sharpe Ratio Optimization fails for a given month, apply equally-weighted weights and calculate each day portfolio return
+returns_dataframe = np.log(new_df['Adj Close']).diff()
+portfolio_df = pd.DataFrame()
+
+for start_date in fixed_dates.keys():
+    try:
+        end_date = (pd.to_datetime(start_date)+pd.offsets.MonthEnd(0)).strftime('%Y-%m-%d')
+        cols = fixed_dates[start_date]
+    
+        optimization_start_date = (pd.to_datetime(start_date) - pd.DateOffset(months=12)).strftime('%Y-%m-%d')
+        optimization_end_date = (pd.to_datetime(start_date) - pd.DateOffset(days=1)).strftime('%Y-%m-%d')
+        optimization_df = new_df['Adj Close'][cols].loc[optimization_start_date:optimization_end_date]
+
+        success = False
+        try:
+            weights = optimize_weights(prices=optimization_df, lower_bound=round(1/(len(optimization_df.columns)*2), 3))
+            weights = pd.DataFrame(weights, index=pd.Series(0))
+            success = True
+            
+        except:
+            print(f'Max Sharpe Optimization failed for {start_date}, Continuing with Equal Weights')
+        if success == False:
+            weights = pd.DataFrame([1/len(optimization_df.columns) for i in range(len(optimization_df.columns))],
+                               index = optimization_df.columns.to_list(),
+                               columns=pd.Series(0)).T
+    
+        temp_df = returns_dataframe[start_date:end_date]
+        temp_df = temp_df.stack().to_frame('return').reset_index(level=0).merge(weights.stack().to_frame('weight').reset_index(level=0, drop=True), left_index=True, right_index=True).reset_index().set_index(['Date','Ticker']).unstack().stack()
+        temp_df['weighted_return'] = temp_df['return']*temp_df['weight']
+        temp_df = temp_df.groupby(level=0)['weighted_return'].sum().to_frame('Strategy Return')
+        portfolio_df = pd.concat([portfolio_df, temp_df], axis = 0)
+    
+    except Exception as e:
+        print(e)
+
+portfolio_df = portfolio_df.drop_duplicates()
