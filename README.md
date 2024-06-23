@@ -24,7 +24,7 @@ This repository contains a Python-based trading model designed to optimize a por
 ## Usage
 
 1. Run the main script to execute the trading model:
-   python main.py
+   python Main.py
   
 2. The script will download the necessary data, calculate features, perform clustering, optimize the portfolio, and output performance results.
 
@@ -42,8 +42,8 @@ This repository contains a Python-based trading model designed to optimize a por
 
 ## Project Structure
 
-- `trading_model.py`: Main script to run the trading model.
-- `requirements.txt`: List of dependencies.
+- `Main.py`: Main script to run the trading model.
+
 - `README.md`: Project documentation.
 
 ## Limitations
