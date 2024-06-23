@@ -187,7 +187,7 @@ for i in data.index.get_level_values('date').unique().tolist():
 #The Hypothesis is that Stocks which have an RSI of around 70 have good momentum and they should have a good momentum even in the next month 
 
 #the idea here is to create a dictionary with: the first date of the next month, & a list of all the good momentum stocks from previous month    
-filtered_df = data[data['cluster'] == 3].copy() 
+filtered_df = data[data['cluster'] == 1].copy() 
 filtered_df = filtered_df.reset_index(level=1)
 filtered_df.index = filtered_df.index + pd.DateOffset(1)
 filtered_df = filtered_df.reset_index().set_index(['date', 'ticker'])  
@@ -263,3 +263,23 @@ for start_date in fixed_dates.keys():
         print(e)
 
 portfolio_df = portfolio_df.drop_duplicates()
+
+#In this step we're going to visulaize the returns of our portfolio and compare them to the benchmark, which in this case is the S&P 500  Index
+import matplotlib.ticker as mtick
+
+spy = yf.download(tickers='SPY',
+                  start='2015-01-01',
+                  end = dt.date.today())
+spy_ret = np.log(spy[['Adj Close']]).diff().dropna().rename({'Adj Close':'SPY Buy&Hold'}, axis=1)
+
+portfolio_df = portfolio_df.merge(spy_ret,
+                                  left_index=True,
+                                  right_index=True)
+
+#the next step is to calculate the cummulative return of both S&P500 and our Strategy, and plot them to compare
+portfolio_cumulative_return = np.exp(np.log1p(portfolio_df).cumsum())-1
+portfolio_cumulative_return.plot(figsize=(16,6))
+plt.title('Unsupervised Learning Trading Strategy Returns Over Time')
+plt.gca().yaxis.set_major_formatter(mtick.PercentFormatter(1))
+plt.ylabel('Return')
+plt.show()
