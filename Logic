@@ -1,0 +1,21 @@
+The trading model is crafted to optimize a portfolio of S&P 500 stocks by integrating technical indicators, clustering, and portfolio optimization techniques. 
+Initially, historical stock data is downloaded, and technical indicators such as RSI, Bollinger Bands, MACD, and ATR are computed. This data is then aggregated monthly, 
+filtering the top 150 most liquid stocks based on dollar volume. The model calculates monthly returns for various time horizons and rolling factor betas using Fama-French 
+factors to capture time-series dynamics and stock exposures.
+
+K-means clustering is applied each month to group stocks into four clusters based on their features, particularly focusing on RSI values. The hypothesis was that the cluster 
+with the highest RSI (Cluster 3) would outperform, but it was discovered that Cluster 1, centered around an RSI of 45, performed best. For each month, stocks are selected 
+from these clusters, and the Efficient Frontier optimizer is used to form a portfolio aimed at maximizing the Sharpe ratio. The optimizer applies constraints to ensure 
+diversification, preventing over-concentration in single stocks.
+
+To validate the model, fresh daily prices for the selected stocks are downloaded, and daily returns for the portfolio are calculated and compared to the S&P 500 index. The 
+cumulative returns are plotted to visualize the strategy's performance over time. This model leverages a combination of statistical analysis and machine learning techniques 
+to enhance portfolio selection and optimization.
+
+Limitations - 
+1. Assumption of Technical Indicators: The model heavily relies on technical indicators, which may not always predict future performance accurately.
+2. Limited Scope of Data: The model only uses the S&P 500, which may not capture broader market trends.
+3. Clustering Assumptions: The hypothesis about RSI and cluster performance did not hold, indicating potential flaws in the clustering approach or assumptions.
+4. Overfitting Risk: Using historical data to optimize the portfolio may lead to overfitting, reducing the model's robustness in different market conditions.
+5. Fixed Clusters: Using fixed initial centroids for K-means clustering may limit the model’s adaptability to changing market conditions.
+
