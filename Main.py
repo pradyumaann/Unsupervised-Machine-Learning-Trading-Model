@@ -8,10 +8,58 @@ import datetime as dt
 import yfinance as yf
 import pandas_ta
 import warnings
+import requests
+from io import StringIO
 warnings.filterwarnings('ignore')
 
 #The first step is to dowload S&P 500 onstituents data, we'll take the list of constituents from a wikipedia page "List of S&P 500 companies"
-sp500 = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')[0]
+def get_sp500_symbols():
+    """
+    Get S&P 500 symbols with proper headers to avoid 403 error.
+    Includes fallback method if Wikipedia blocks the request.
+    """
+    try:
+        # Method 1: Try with proper headers
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code == 200:
+            sp500 = pd.read_html(StringIO(response.text))[0]
+            print("✓ Successfully downloaded S&P 500 data from Wikipedia")
+        else:
+            raise Exception(f"HTTP {response.status_code}")
+            
+    except Exception as e:
+        print(f"⚠ Wikipedia method failed: {e}")
+        print("🔄 Using fallback method with predefined S&P 500 list...")
+        
+        # Method 2: Fallback with a predefined list of major S&P 500 stocks
+        # This is a subset of major S&P 500 companies that should work for testing
+        fallback_symbols = [
+            'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK-B', 'UNH', 'JNJ',
+            'JPM', 'V', 'PG', 'XOM', 'HD', 'CVX', 'MA', 'BAC', 'ABBV', 'PFE', 'AVGO', 'KO',
+            'LLY', 'MRK', 'COST', 'PEP', 'TMO', 'WMT', 'ABT', 'ACN', 'CSCO', 'DHR', 'VZ',
+            'ADBE', 'NKE', 'CRM', 'TXN', 'LIN', 'NEE', 'RTX', 'QCOM', 'PM', 'ORCL', 'HON',
+            'T', 'UPS', 'LOW', 'IBM', 'AMAT', 'CAT', 'MDT', 'UNP', 'GS', 'SPGI', 'AXP',
+            'BLK', 'DE', 'BKNG', 'AMD', 'ELV', 'PLD', 'TJX', 'GILD', 'MDLZ', 'C', 'LRCX',
+            'SYK', 'CB', 'MO', 'ISRG', 'SCHW', 'MMC', 'ZTS', 'SO', 'FI', 'DUK', 'BSX',
+            'AON', 'ADI', 'TGT', 'KLAC', 'MU', 'SLB', 'EQIX', 'ICE', 'PGR', 'CL', 'NSC',
+            'ITW', 'FCX', 'USB', 'APD', 'SNPS', 'GD', 'EMR', 'CSX', 'MCO', 'WM', 'TFC',
+            'PNC', 'F', 'GM', 'COP', 'NOC', 'NFLX', 'ECL', 'SHW', 'CME', 'FDX', 'ADP'
+        ]
+        
+        # Create a DataFrame similar to Wikipedia format
+        sp500 = pd.DataFrame({'Symbol': fallback_symbols})
+        print(f"✓ Using {len(fallback_symbols)} major S&P 500 stocks as fallback")
+    
+    return sp500
+
+# Get S&P 500 data
+sp500 = get_sp500_symbols()
 
 #The list of symbols for the S&P 500 constituents might include '.' punctuations, so here we'll clean the data to get the list of symbols 
 sp500['Symbol'] = sp500['Symbol'].str.replace('.','-')
@@ -287,3 +335,181 @@ plt.gca().yaxis.set_major_formatter(mtick.PercentFormatter(1))
 plt.ylabel('Return')
 plt.show()
 
+def calculate_max_drawdown(returns):
+    """
+    Calculate the maximum drawdown of a return series.
+    
+    Parameters:
+    returns (pd.Series): Daily returns
+    
+    Returns:
+    float: Maximum drawdown as a decimal (e.g., 0.20 = 20% drawdown)
+    """
+    # Calculate cumulative returns
+    cum_returns = (1 + returns).cumprod()
+    
+    # Calculate running maximum (peak)
+    running_max = cum_returns.expanding().max()
+    
+    # Calculate drawdown
+    drawdown = (cum_returns - running_max) / running_max
+    
+    # Return maximum drawdown (most negative value)
+    return drawdown.min()
+
+def calculate_sharpe_ratio(returns, risk_free_rate=0.02):
+    """
+    Calculate the Sharpe ratio of a return series.
+    
+    Parameters:
+    returns (pd.Series): Daily returns
+    risk_free_rate (float): Annual risk-free rate (default 2%)
+    
+    Returns:
+    float: Sharpe ratio
+    """
+    # Convert annual risk-free rate to daily
+    daily_rf = risk_free_rate / 252
+    
+    # Calculate excess returns
+    excess_returns = returns - daily_rf
+    
+    # Calculate Sharpe ratio (annualized)
+    if excess_returns.std() == 0:
+        return 0
+    
+    sharpe = (excess_returns.mean() / excess_returns.std()) * np.sqrt(252)
+    return sharpe
+
+def calculate_portfolio_metrics(portfolio_returns):
+    """
+    Calculate comprehensive portfolio metrics including Max Drawdown and Sharpe Ratio.
+    
+    Parameters:
+    portfolio_returns (pd.DataFrame): DataFrame with portfolio returns
+    
+    Returns:
+    dict: Dictionary containing all metrics
+    """
+    metrics = {}
+    
+    for column in portfolio_returns.columns:
+        returns = portfolio_returns[column].dropna()
+        
+        # Basic metrics
+        total_return = (1 + returns).prod() - 1
+        annualized_return = (1 + returns).mean() ** 252 - 1
+        annualized_volatility = returns.std() * np.sqrt(252)
+        
+        # Risk metrics
+        max_dd = calculate_max_drawdown(returns)
+        sharpe = calculate_sharpe_ratio(returns)
+        
+        # Additional metrics
+        skewness = returns.skew()
+        kurtosis = returns.kurtosis()
+        
+        metrics[column] = {
+            'Total Return': f"{total_return:.2%}",
+            'Annualized Return': f"{annualized_return:.2%}",
+            'Annualized Volatility': f"{annualized_volatility:.2%}",
+            'Max Drawdown': f"{max_dd:.2%}",
+            'Sharpe Ratio': f"{sharpe:.3f}",
+            'Skewness': f"{skewness:.3f}",
+            'Kurtosis': f"{kurtosis:.3f}"
+        }
+    
+    return metrics
+
+def plot_drawdown_chart(returns, title="Portfolio Drawdown"):
+    """
+    Plot the drawdown chart for portfolio returns.
+    
+    Parameters:
+    returns (pd.Series): Daily returns
+    title (str): Chart title
+    """
+    # Calculate cumulative returns and drawdown
+    cum_returns = (1 + returns).cumprod()
+    running_max = cum_returns.expanding().max()
+    drawdown = (cum_returns - running_max) / running_max
+    
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 10), sharex=True)
+    
+    # Plot cumulative returns
+    ax1.plot(cum_returns.index, cum_returns, label='Cumulative Returns', linewidth=2)
+    ax1.plot(running_max.index, running_max, label='Running Maximum', linestyle='--', alpha=0.7)
+    ax1.set_ylabel('Cumulative Returns')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    ax1.set_title(f'{title} - Cumulative Returns and Running Maximum')
+    
+    # Plot drawdown
+    ax2.fill_between(drawdown.index, drawdown, 0, alpha=0.3, color='red', label='Drawdown')
+    ax2.plot(drawdown.index, drawdown, color='red', linewidth=1)
+    ax2.set_ylabel('Drawdown (%)')
+    ax2.set_xlabel('Date')
+    ax2.yaxis.set_major_formatter(mtick.PercentFormatter(1))
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    ax2.set_title('Portfolio Drawdown Over Time')
+    
+    plt.tight_layout()
+    plt.show()
+
+# Calculate and display portfolio metrics
+print("="*80)
+print("PORTFOLIO PERFORMANCE METRICS")
+print("="*80)
+
+# Calculate metrics for both strategy and benchmark
+portfolio_metrics = calculate_portfolio_metrics(portfolio_df)
+
+# Display results in a formatted table
+print(f"\n{'Metric':<25} {'Strategy':<15} {'SPY Benchmark':<15}")
+print("-" * 55)
+
+portfolio_metrics
+
+for metric in ['Total Return', 'Annualized Return', 'Annualized Volatility', 
+               'Max Drawdown', 'Sharpe Ratio', 'Skewness', 'Kurtosis']:
+    strategy_val = portfolio_metrics['Strategy Return'][metric]
+    spy_val = portfolio_metrics['SPY'][metric]
+    print(f"{metric:<25} {strategy_val:<15} {spy_val:<15}")
+
+# Plot drawdown charts for both strategy and benchmark
+print("\nGenerating Drawdown Charts...")
+plot_drawdown_chart(portfolio_df['Strategy Return'], "ML Trading Strategy")
+plot_drawdown_chart(portfolio_df['SPY'], "SPY Buy & Hold Strategy")
+
+# Calculate additional risk-adjusted performance metrics
+def calculate_calmar_ratio(returns):
+    """Calculate Calmar Ratio (Annualized Return / Max Drawdown)"""
+    annualized_return = (1 + returns).mean() ** 252 - 1
+    max_dd = abs(calculate_max_drawdown(returns))
+    return annualized_return / max_dd if max_dd != 0 else 0
+
+def calculate_sortino_ratio(returns, risk_free_rate=0.02):
+    """Calculate Sortino Ratio (excess return / downside deviation)"""
+    daily_rf = risk_free_rate / 252
+    excess_returns = returns - daily_rf
+    downside_returns = excess_returns[excess_returns < 0]
+    downside_deviation = downside_returns.std() * np.sqrt(252)
+    return (excess_returns.mean() * 252) / downside_deviation if downside_deviation != 0 else 0
+
+print("\n" + "="*50)
+print("ADDITIONAL RISK-ADJUSTED METRICS")
+print("="*50)
+
+for column in portfolio_df.columns:
+    returns = portfolio_df[column].dropna()
+    calmar = calculate_calmar_ratio(returns)
+    sortino = calculate_sortino_ratio(returns)
+    
+    print(f"\n{column}:")
+    print(f"  Calmar Ratio: {calmar:.3f}")
+    print(f"  Sortino Ratio: {sortino:.3f}")
+
+print("\n" + "="*80)
+print("ANALYSIS COMPLETE - All metrics calculated and displayed above")
+print("="*80)
